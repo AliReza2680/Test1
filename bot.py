@@ -1,4 +1,4 @@
-"""Persian RSS news bot for Telegram. Python standard library only."""
+""""Persian RSS news bot for Telegram, served with Flask and Waitress."""
 import html
 import json
 import logging
@@ -6,12 +6,13 @@ import os
 import re
 import threading
 import time
-import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from flask import Flask
+from waitress import serve
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_IDS = {x.strip() for x in os.environ.get("CHAT_ID", "").split(",") if x.strip()}
@@ -34,6 +35,14 @@ STATE_FILE = os.path.join(os.environ.get("DATA_DIR", "data"), "state.json")
 lock = threading.Lock()
 subscribers = set(CHAT_IDS)
 seen = set()
+
+app = Flask(__name__)
+
+@app.get("/")
+@app.get("/health")
+@app.get("/healthz")
+def health():
+    return "ok", 200
 
 def load_state():
     global subscribers, seen
@@ -81,7 +90,7 @@ def send(chat_id, text):
 
 def clean(value):
     value = re.sub(r"<[^>]*>", " ", value or "")
-    return html.unescape(re.sub(r"\s+", " ", value)).strip()
+    return html.unescape(re.sub(r"\\s+", " ", value)).strip()
 
 def fetch_news():
     found = []
@@ -131,8 +140,8 @@ def format_news(items):
             continue
         lines = [heading]
         for _, _, title, link, source, _ in group:
-            lines.append(f"🔹 <b>{html.escape(title)}</b>\n<i>{html.escape(source)}</i> — <a href=\"{html.escape(link, quote=True)}\">ادامه خبر</a>")
-        blocks.append("\n\n".join(lines))
+            lines.append(f"🔹 <b>{html.escape(title)}</b>\\n<i>{html.escape(source)}</i> — <a href=\\"{html.escape(link, quote=True)}\\">ادامه خبر</a>")
+        blocks.append("\\n\\n".join(lines))
     return blocks
 
 def deliver(items, chats=None):
@@ -154,7 +163,7 @@ def handle(update):
     if cmd == "/start":
         subscribers.add(chat)
         save_state()
-        send(chat, "✅ ارسال خودکار اخبار فعال شد.\nدستورات: /news، /iran، /world، /sources، /stop")
+        send(chat, "✅ ارسال خودکار اخبار فعال شد.\\nدستورات: /news، /iran، /world، /sources، /stop")
     elif cmd == "/stop":
         if chat not in CHAT_IDS:
             subscribers.discard(chat)
@@ -174,7 +183,7 @@ def handle(update):
         else:
             send(chat, "فعلاً خبری دریافت نشد.")
     elif cmd == "/sources":
-        send(chat, "منابع خبری:\n" + "\n".join("• " + html.escape(x[0]) for x in SOURCES))
+        send(chat, "منابع خبری:\\n" + "\\n".join("• " + html.escape(x[0]) for x in SOURCES))
     else:
         send(chat, "دستورات: /start، /stop، /news، /iran، /world، /sources")
 
@@ -210,36 +219,31 @@ def news_loop():
             log.exception("News cycle failed")
         time.sleep(INTERVAL)
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path in ("/", "/health", "/healthz"):
-            body, status = b"ok", 200
-        else:
-            body, status = b"not found", 404
-        self.send_response(status)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-    def log_message(self, *args):
-        return
-
 def main():
-    if not TOKEN:
-        raise SystemExit("Set TELEGRAM_BOT_TOKEN in the environment.")
     load_state()
-    telegram("setMyCommands", commands=[
-        {"command": "news", "description": "تازه‌ترین خبرها"},
-        {"command": "iran", "description": "اخبار ایران"},
-        {"command": "world", "description": "اخبار جهان"},
-        {"command": "sources", "description": "منابع خبری"},
-        {"command": "start", "description": "فعال‌سازی ارسال خودکار"},
-        {"command": "stop", "description": "توقف ارسال خودکار"},
-    ])
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    threading.Thread(target=polling, daemon=True).start()
-    news_loop()
+    threading.Thread(
+        target=lambda: serve(app, host="0.0.0.0", port=PORT),
+        daemon=True,
+        name="flask-web",
+    ).start()
+
+    if TOKEN:
+        telegram("setMyCommands", commands=[
+            {"command": "news", "description": "تازه‌ترین خبرها"},
+            {"command": "iran", "description": "اخبار ایران"},
+            {"command": "world", "description": "اخبار جهان"},
+            {"command": "sources", "description": "منابع خبری"},
+            {"command": "start", "description": "فعال‌سازی ارسال خودکار"},
+            {"command": "stop", "description": "توقف ارسال خودکار"},
+        ])
+        threading.Thread(target=polling, daemon=True, name="telegram-polling").start()
+        threading.Thread(target=news_loop, daemon=True, name="news-loop").start()
+        log.info("Telegram bot and Flask health service started.")
+    else:
+        log.warning("TELEGRAM_BOT_TOKEN is missing; web health service is running, bot is disabled.")
+
+    while True:
+        time.sleep(3600)
 
 if __name__ == "__main__":
     main()
