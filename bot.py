@@ -1,4 +1,4 @@
-""""Persian RSS news bot for Telegram, served with Flask and Waitress."""
+"""Persian RSS news bot for Telegram, served with Flask and Waitress."""
 import html
 import json
 import logging
@@ -90,7 +90,7 @@ def send(chat_id, text):
 
 def clean(value):
     value = re.sub(r"<[^>]*>", " ", value or "")
-    return html.unescape(re.sub(r"\\s+", " ", value)).strip()
+    return html.unescape(re.sub(r"\s+", " ", value)).strip()
 
 def fetch_news():
     found = []
@@ -140,8 +140,8 @@ def format_news(items):
             continue
         lines = [heading]
         for _, _, title, link, source, _ in group:
-            lines.append(f"🔹 <b>{html.escape(title)}</b>\\n<i>{html.escape(source)}</i> — <a href=\\"{html.escape(link, quote=True)}\\">ادامه خبر</a>")
-        blocks.append("\\n\\n".join(lines))
+            lines.append(f"🔹 <b>{html.escape(title)}</b>\n<i>{html.escape(source)}</i> — <a href=\"{html.escape(link, quote=True)}\">ادامه خبر</a>")
+        blocks.append("\n\n".join(lines))
     return blocks
 
 def deliver(items, chats=None):
@@ -163,7 +163,7 @@ def handle(update):
     if cmd == "/start":
         subscribers.add(chat)
         save_state()
-        send(chat, "✅ ارسال خودکار اخبار فعال شد.\\nدستورات: /news، /iran، /world، /sources، /stop")
+        send(chat, "✅ ارسال خودکار اخبار فعال شد.\nدستورات: /news، /iran، /world، /sources، /stop")
     elif cmd == "/stop":
         if chat not in CHAT_IDS:
             subscribers.discard(chat)
@@ -183,7 +183,7 @@ def handle(update):
         else:
             send(chat, "فعلاً خبری دریافت نشد.")
     elif cmd == "/sources":
-        send(chat, "منابع خبری:\\n" + "\\n".join("• " + html.escape(x[0]) for x in SOURCES))
+        send(chat, "منابع خبری:\n" + "\n".join("• " + html.escape(x[0]) for x in SOURCES))
     else:
         send(chat, "دستورات: /start، /stop، /news، /iran، /world، /sources")
 
